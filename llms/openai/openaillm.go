@@ -320,9 +320,14 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 	}
 
 	if opts.OpenRouterOptions != nil {
-		req.Reasoning = &openaiclient.Reasoning{
-			Effort:    opts.OpenRouterOptions.ReasoningEffort,
-			MaxTokens: opts.OpenRouterOptions.ReasoningMaxTokens,
+		if strings.Contains(strings.ToLower(opts.Model), "gemini") || strings.Contains(strings.ToLower(opts.Model), "anthropic") {
+			req.Reasoning = &openaiclient.Reasoning{
+				MaxTokens: opts.OpenRouterOptions.ReasoningMaxTokens,
+			}
+		} else {
+			req.Reasoning = &openaiclient.Reasoning{
+				Effort: opts.OpenRouterOptions.ReasoningEffort,
+			}
 		}
 	}
 
