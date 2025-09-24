@@ -319,6 +319,13 @@ func (o *LLM) GenerateContent(ctx context.Context, messages []llms.MessageConten
 		req.Tools = append(req.Tools, t)
 	}
 
+	if opts.OpenRouterOptions != nil {
+		req.Reasoning = &openaiclient.Reasoning{
+			Effort:    opts.OpenRouterOptions.ReasoningEffort,
+			MaxTokens: opts.OpenRouterOptions.ReasoningMaxTokens,
+		}
+	}
+
 	// if o.client.ResponseFormat is set, use it for the request
 	if o.client.ResponseFormat != nil {
 		req.ResponseFormat = o.client.ResponseFormat
