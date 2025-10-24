@@ -69,6 +69,8 @@ type CallOptions struct {
 	// Supported MIME types are: text/plain: (default) Text output.
 	// application/json: JSON response in the response candidates.
 	ResponseMIMEType string `json:"response_mime_type,omitempty"`
+
+	OpenRouterOptions *OpenRouterOptions `json:"openrouter_options,omitempty"`
 }
 
 // Tool is a tool that can be used by the model.
@@ -289,5 +291,11 @@ func WithMetadata(metadata map[string]interface{}) CallOption {
 func WithResponseMIMEType(responseMIMEType string) CallOption {
 	return func(o *CallOptions) {
 		o.ResponseMIMEType = responseMIMEType
+	}
+}
+
+func WithOpenRouterOptions(options *OpenRouterOptions) CallOption {
+	return func(o *CallOptions) {
+		o.OpenRouterOptions = options
 	}
 }

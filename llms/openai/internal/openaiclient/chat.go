@@ -83,6 +83,8 @@ type ChatRequest struct {
 
 	// Metadata allows you to specify additional information that will be passed to the model.
 	Metadata map[string]any `json:"metadata,omitempty"`
+
+	Reasoning *Reasoning `json:"reasoning,omitempty"`
 }
 
 // MarshalJSON ensures that only one of MaxTokens or MaxCompletionTokens is sent.
@@ -459,6 +461,11 @@ type FunctionCall struct {
 	Name string `json:"name"`
 	// Arguments is the set of arguments to pass to the function.
 	Arguments string `json:"arguments"`
+}
+
+type Reasoning struct {
+	Effort    string `json:"effort,omitempty"`
+	MaxTokens int    `json:"max_tokens,omitempty"`
 }
 
 func (c *Client) createChat(ctx context.Context, payload *ChatRequest) (*ChatCompletionResponse, error) {
