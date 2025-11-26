@@ -83,11 +83,17 @@ type ChatRequest struct {
 
 	// Metadata allows you to specify additional information that will be passed to the model.
 	Metadata map[string]any `json:"metadata,omitempty"`
+
+	// ExtraBody allows you to specify additional fields to include in the request body.
+	// This is useful for adding custom or provider-specific fields that are not
+	// explicitly defined in the ChatRequest struct.
+	ExtraBody map[string]any `json:"-"`
 }
 
 // MarshalJSON ensures that only one of MaxTokens or MaxCompletionTokens is sent.
 // OpenAI's API returns an error if both fields are present.
 // Also omits temperature for reasoning models (GPT-5, o1, o3) that only accept default temperature.
+// Additionally, merges ExtraBody fields into the final JSON output.
 func (r ChatRequest) MarshalJSON() ([]byte, error) {
 	type Alias ChatRequest
 	aux := struct {
@@ -123,7 +129,33 @@ func (r ChatRequest) MarshalJSON() ([]byte, error) {
 		aux.MaxCompletionTokens = nil
 	}
 
-	return json.Marshal(&aux)
+	// Marshal the main request data
+	mainJSON, err := json.Marshal(&aux)
+	if err != nil {
+		return nil, err
+	}
+
+	// If there are extra body fields, merge them into the final JSON
+	if len(r.ExtraBody) > 0 {
+		// Use json.Decoder with UseNumber() to preserve numeric precision
+		var result map[string]interface{}
+		decoder := json.NewDecoder(bytes.NewReader(mainJSON))
+		decoder.UseNumber() // This preserves numeric precision
+
+		if err := decoder.Decode(&result); err != nil {
+			return nil, fmt.Errorf("failed to decode main JSON: %w", err)
+		}
+
+		// Merge extra body fields
+		for key, value := range r.ExtraBody {
+			result[key] = value
+		}
+
+		// Marshal the merged result
+		return json.Marshal(result)
+	}
+
+	return mainJSON, nil
 }
 
 // isReasoningModel returns true if the model is a reasoning model that has temperature constraints.
@@ -698,6 +730,36 @@ func updateToolCalls(tools []ToolCall, delta []*ToolCall) ([]byte, []ToolCall) {
 	chunk, _ := json.Marshal(delta) // nolint:errchkjson
 
 	return chunk, tools
+}
+
+// SetExtraBody sets extra fields in the request body that will be merged with the main request data.
+// This is useful for adding custom or provider-specific fields.
+// For example, to add a custom field "custom_param":
+//
+//	request.SetExtraBody(map[string]any{
+//		"custom_param": "value",
+//		"another_field": 123,
+//	})
+func (r *ChatRequest) SetExtraBody(extraBody map[string]any) {
+	if r.ExtraBody == nil {
+		r.ExtraBody = make(map[string]any)
+	}
+	for key, value := range extraBody {
+		r.ExtraBody[key] = value
+	}
+}
+
+// AddExtraBodyField adds a single extra field to the request body.
+// This is a convenience method for adding one field at a time.
+// For example:
+//
+//	request.AddExtraBodyField("custom_param", "value")
+//	request.AddExtraBodyField("another_field", 123)
+func (r *ChatRequest) AddExtraBodyField(key string, value any) {
+	if r.ExtraBody == nil {
+		r.ExtraBody = make(map[string]any)
+	}
+	r.ExtraBody[key] = value
 }
 
 // StreamingChatResponseTools is a helper function to append tool calls to the stack.
