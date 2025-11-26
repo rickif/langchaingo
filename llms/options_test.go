@@ -495,3 +495,16 @@ func TestEmptyOptions(t *testing.T) {
 		t.Error("Functions is not nil")
 	}
 }
+
+func TestWithExtraBody(t *testing.T) {
+	extraBody := map[string]interface{}{
+		"key": "value",
+	}
+
+	var opts llms.CallOptions
+	llms.WithExtraBody(extraBody)(&opts)
+
+	if !reflect.DeepEqual(opts.ExtraBody, extraBody) {
+		t.Errorf("ExtraBody = %v, want %v", opts.ExtraBody, extraBody)
+	}
+}
