@@ -63,15 +63,6 @@ func WithConnectionURL(connectionURL string) Option {
 	}
 }
 
-// WithConn is an option for specifying the Postgres connection.
-// From pgx doc: it is not safe for concurrent usage.Use a connection pool to manage access
-// to multiple database connections from multiple goroutines.
-func WithConn(conn PGXConn) Option {
-	return func(p *Store) {
-		p.conn = conn
-	}
-}
-
 // WithCollectionMetadata is an option for specifying the collection metadata.
 func WithCollectionMetadata(metadata map[string]any) Option {
 	return func(p *Store) {
@@ -114,7 +105,7 @@ func applyClientOptions(opts ...Option) (Store, error) {
 		opt(o)
 	}
 
-	if o.conn == nil && o.connURL == "" {
+	if o.connPool == nil && o.connURL == "" {
 		return Store{}, fmt.Errorf("%w: missing postgres connection", ErrInvalidOptions)
 	}
 

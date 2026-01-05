@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
 	"github.com/tmc/langchaingo/embeddings"
 	"github.com/tmc/langchaingo/schema"
@@ -54,7 +54,7 @@ type CloseNoErr interface {
 type Store struct {
 	embedder            embeddings.Embedder
 	connURL             string
-	conn                PGXConn
+	connPool            *pgxpool.Pool
 	embeddingTableName  string
 	collectionTableName string
 	collectionName      string
@@ -79,13 +79,13 @@ func New(ctx context.Context, opts ...Option) (Store, error) {
 	if err != nil {
 		return Store{}, err
 	}
-	if store.conn == nil {
-		store.conn, err = pgx.Connect(ctx, store.connURL)
+	if store.connPool == nil {
+		store.connPool, err = pgxpool.New(ctx, store.connURL)
 		if err != nil {
 			return Store{}, err
 		}
 	}
-	if err = store.conn.Ping(ctx); err != nil {
+	if err = store.connPool.Ping(ctx); err != nil {
 		return Store{}, err
 	}
 	if err = store.init(ctx); err != nil {
@@ -96,17 +96,12 @@ func New(ctx context.Context, opts ...Option) (Store, error) {
 
 // Close closes the connection.
 func (s Store) Close() error {
-	if closer, ok := s.conn.(io.Closer); ok {
-		return closer.Close()
-	}
-	if closer, ok := s.conn.(CloseNoErr); ok {
-		closer.Close()
-	}
+	s.connPool.Close()
 	return nil
 }
 
 func (s *Store) init(ctx context.Context) error {
-	tx, err := s.conn.Begin(ctx)
+	tx, err := s.connPool.Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -265,7 +260,7 @@ func (s Store) AddDocuments(
 		ids[docIdx] = id
 		b.Queue(sql, id, doc.PageContent, pgvector.NewVector(vectors[docIdx]), doc.Metadata, s.collectionUUID)
 	}
-	return ids, s.conn.SendBatch(ctx, b).Close()
+	return ids, s.connPool.SendBatch(ctx, b).Close()
 }
 
 //nolint:cyclop
@@ -332,7 +327,7 @@ ORDER BY
 LIMIT $3`, s.embeddingTableName,
 		s.collectionTableName, s.collectionTableName, s.collectionTableName, collectionName,
 		whereQuery)
-	rows, err := s.conn.Query(ctx, sql, dims, pgvector.NewVector(embedderData), numDocuments)
+	rows, err := s.connPool.Query(ctx, sql, dims, pgvector.NewVector(embedderData), numDocuments)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +373,7 @@ WHERE %s.name='%s' AND %s
 LIMIT $1`, s.embeddingTableName, s.embeddingTableName, s.embeddingTableName,
 		s.collectionTableName, s.embeddingTableName, s.collectionTableName, s.collectionTableName, collectionName,
 		whereQuery)
-	rows, err := s.conn.Query(ctx, sql, numDocuments)
+	rows, err := s.connPool.Query(ctx, sql, numDocuments)
 	if err != nil {
 		return nil, err
 	}
@@ -396,10 +391,10 @@ LIMIT $1`, s.embeddingTableName, s.embeddingTableName, s.embeddingTableName,
 }
 
 func (s Store) DropTables(ctx context.Context) error {
-	if _, err := s.conn.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, s.embeddingTableName)); err != nil {
+	if _, err := s.connPool.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, s.embeddingTableName)); err != nil {
 		return err
 	}
-	if _, err := s.conn.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, s.collectionTableName)); err != nil {
+	if _, err := s.connPool.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, s.collectionTableName)); err != nil {
 		return err
 	}
 	return nil
