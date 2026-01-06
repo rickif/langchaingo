@@ -475,3 +475,26 @@ func (s Store) deduplicate(
 
 	return filtered
 }
+
+func (s Store) Delete(
+	ctx context.Context,
+	options ...vectorstores.Option,
+) error {
+	opts := s.getOptions(options...)
+	filter, err := s.getFilters(opts)
+	if err != nil {
+		return err
+	}
+	whereQuerys := make([]string, 0)
+	for k, v := range filter {
+		whereQuerys = append(whereQuerys, fmt.Sprintf("(%s.cmetadata ->> '%s') = '%s'", s.embeddingTableName, k, v))
+	}
+	whereQuery := strings.Join(whereQuerys, " AND ")
+	if len(whereQuery) == 0 {
+		whereQuery = "TRUE"
+	}
+
+	sql := fmt.Sprintf(`DELETE FROM %s WHERE %s.collection_id= %s AND %s`, s.embeddingTableName, s.embeddingTableName, s.collectionUUID, whereQuery)
+	_, err = s.conn.Exec(ctx, sql)
+	return err
+}
