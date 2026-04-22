@@ -296,6 +296,11 @@ func WithResponseMIMEType(responseMIMEType string) CallOption {
 
 func WithExtraBody(extraBody map[string]interface{}) CallOption {
 	return func(o *CallOptions) {
-		o.ExtraBody = extraBody
+		if o.ExtraBody == nil {
+			o.ExtraBody = make(map[string]interface{})
+		}
+		for k, v := range extraBody {
+			o.ExtraBody[k] = v
+		}
 	}
 }
