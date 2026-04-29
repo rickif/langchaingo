@@ -71,6 +71,9 @@ type CallOptions struct {
 	ResponseMIMEType string `json:"response_mime_type,omitempty"`
 
 	ExtraBody map[string]interface{} `json:"extra_body,omitempty"`
+	// WebSearchOptions configures web search behavior for models that support it.
+	// Currently supported by OpenAI models like gpt-4o-search-preview.
+	WebSearchOptions *WebSearchOptions `json:"web_search_options,omitempty"`
 }
 
 // Tool is a tool that can be used by the model.
@@ -110,6 +113,39 @@ type FunctionReference struct {
 
 // FunctionCallBehavior is the behavior to use when calling functions.
 type FunctionCallBehavior string
+
+// WebSearchOptions configures web search behavior for models that support web search.
+// This is currently supported by OpenAI models like gpt-4o-search-preview.
+type WebSearchOptions struct {
+	// SearchContextSize controls how much context is gathered from web search.
+	// Valid values: "low", "medium", "high". Higher values provide more context
+	// but increase latency and cost.
+	SearchContextSize string `json:"search_context_size,omitempty"`
+
+	// UserLocation provides approximate user location for localized search results.
+	UserLocation *UserLocation `json:"user_location,omitempty"`
+}
+
+// UserLocation represents the user's approximate location for web search.
+type UserLocation struct {
+	// Type must be "approximate" for user-provided location.
+	Type string `json:"type"`
+
+	// Approximate contains the approximate location details.
+	Approximate *ApproximateLocation `json:"approximate,omitempty"`
+}
+
+// ApproximateLocation contains approximate location information.
+type ApproximateLocation struct {
+	// Country is the two-letter ISO country code (e.g., "US", "GB").
+	Country string `json:"country,omitempty"`
+
+	// City is the city name (e.g., "San Francisco", "London").
+	City string `json:"city,omitempty"`
+
+	// Region is the region or state (e.g., "California", "London").
+	Region string `json:"region,omitempty"`
+}
 
 const (
 	// FunctionCallBehaviorNone will not call any functions.
@@ -301,6 +337,19 @@ func WithExtraBody(extraBody map[string]interface{}) CallOption {
 		}
 		for k, v := range extraBody {
 			o.ExtraBody[k] = v
+		}
+	}
+}
+
+// WithWebSearch enables web search for models that support it.
+// Use with OpenAI models like gpt-4o-search-preview and gpt-4o-mini-search-preview.
+// Pass nil for default web search behavior, or provide WebSearchOptions to customize.
+func WithWebSearch(options *WebSearchOptions) CallOption {
+	return func(o *CallOptions) {
+		if options == nil {
+			o.WebSearchOptions = &WebSearchOptions{}
+		} else {
+			o.WebSearchOptions = options
 		}
 	}
 }
