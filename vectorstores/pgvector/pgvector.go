@@ -353,7 +353,9 @@ LIMIT $3`, s.embeddingTableName,
 //nolint:cyclop
 func (s Store) Search(
 	ctx context.Context,
-	numDocuments int,
+	limit int,
+	offset int,
+	orderBy []string,
 	options ...vectorstores.Option,
 ) ([]schema.Document, error) {
 	opts := s.getOptions(options...)
@@ -370,16 +372,20 @@ func (s Store) Search(
 	if len(whereQuery) == 0 {
 		whereQuery = "TRUE"
 	}
+	orderby := strings.Join(orderBy, ",")
+	if len(orderby) == 0 {
+		orderby = "1"
+	}
 	sql := fmt.Sprintf(`SELECT
 	%s.document,
 	%s.cmetadata
 FROM %s
 JOIN %s ON %s.collection_id=%s.uuid
-WHERE %s.name='%s' AND %s
-LIMIT $1`, s.embeddingTableName, s.embeddingTableName, s.embeddingTableName,
+WHERE %s.name='%s' AND %s ORDER BY $1
+LIMIT $2 OFFSET $3`, s.embeddingTableName, s.embeddingTableName, s.embeddingTableName,
 		s.collectionTableName, s.embeddingTableName, s.collectionTableName, s.collectionTableName, collectionName,
 		whereQuery)
-	rows, err := s.conn.Query(ctx, sql, numDocuments)
+	rows, err := s.conn.Query(ctx, sql, orderby, limit, offset)
 	if err != nil {
 		return nil, err
 	}
