@@ -15,6 +15,7 @@ type Options struct {
 	NameSpace      string
 	ScoreThreshold float32
 	Filters        any
+	DocumentLike   string
 	Embedder       embeddings.Embedder
 	Deduplicater   func(context.Context, schema.Document) bool
 }
@@ -39,6 +40,14 @@ func WithScoreThreshold(scoreThreshold float32) Option {
 func WithFilters(filters any) Option {
 	return func(o *Options) {
 		o.Filters = filters
+	}
+}
+
+// WithDocumentLike limits searches using a case-insensitive substring match
+// against the stored document text.
+func WithDocumentLike(keyword string) Option {
+	return func(o *Options) {
+		o.DocumentLike = keyword
 	}
 }
 

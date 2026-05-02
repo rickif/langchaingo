@@ -232,7 +232,7 @@ func (s Store) AddDocuments(
 	options ...vectorstores.Option,
 ) ([]string, error) {
 	opts := s.getOptions(options...)
-	if opts.ScoreThreshold != 0 || opts.Filters != nil || opts.NameSpace != "" {
+	if opts.ScoreThreshold != 0 || opts.Filters != nil || opts.NameSpace != "" || opts.DocumentLike != "" {
 		return nil, ErrUnsupportedOptions
 	}
 
@@ -360,17 +360,9 @@ func (s Store) Search(
 ) ([]schema.Document, error) {
 	opts := s.getOptions(options...)
 	collectionName := s.getNameSpace(opts)
-	filter, err := s.getFilters(opts)
+	whereQuery, args, err := s.buildSearchFilters(collectionName, opts)
 	if err != nil {
 		return nil, err
-	}
-	whereQuerys := make([]string, 0)
-	for k, v := range filter {
-		whereQuerys = append(whereQuerys, fmt.Sprintf("(%s.cmetadata ->> '%s') = '%s'", s.embeddingTableName, k, v))
-	}
-	whereQuery := strings.Join(whereQuerys, " AND ")
-	if len(whereQuery) == 0 {
-		whereQuery = "TRUE"
 	}
 	orderby := strings.Join(orderBy, ",")
 	if len(orderby) == 0 {
@@ -381,11 +373,11 @@ func (s Store) Search(
 	%s.cmetadata
 FROM %s
 JOIN %s ON %s.collection_id=%s.uuid
-WHERE %s.name='%s' AND %s ORDER BY $1
-LIMIT $2 OFFSET $3`, s.embeddingTableName, s.embeddingTableName, s.embeddingTableName,
-		s.collectionTableName, s.embeddingTableName, s.collectionTableName, s.collectionTableName, collectionName,
-		whereQuery)
-	rows, err := s.conn.Query(ctx, sql, orderby, limit, offset)
+WHERE %s ORDER BY %s
+LIMIT $%d OFFSET $%d`, s.embeddingTableName, s.embeddingTableName, s.embeddingTableName,
+		s.collectionTableName, s.embeddingTableName, s.collectionTableName, whereQuery, orderby, len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -408,29 +400,19 @@ func (s Store) Count(
 ) (int, error) {
 	opts := s.getOptions(options...)
 	collectionName := s.getNameSpace(opts)
-	filter, err := s.getFilters(opts)
+	whereQuery, args, err := s.buildSearchFilters(collectionName, opts)
 	if err != nil {
 		return 0, err
-	}
-
-	whereQuerys := make([]string, 0)
-	for k, v := range filter {
-		whereQuerys = append(whereQuerys, fmt.Sprintf("(%s.cmetadata ->> '%s') = '%s'", s.embeddingTableName, k, v))
-	}
-	whereQuery := strings.Join(whereQuerys, " AND ")
-	if len(whereQuery) == 0 {
-		whereQuery = "TRUE"
 	}
 
 	sql := fmt.Sprintf(`SELECT
 	COUNT(1)
 FROM %s
 JOIN %s ON %s.collection_id=%s.uuid
-WHERE %s.name='%s' AND %s`, s.embeddingTableName, s.collectionTableName, s.embeddingTableName, s.collectionTableName,
-		s.collectionTableName, collectionName, whereQuery)
+WHERE %s`, s.embeddingTableName, s.collectionTableName, s.embeddingTableName, s.collectionTableName, whereQuery)
 
 	var count int
-	if err := s.conn.QueryRow(ctx, sql).Scan(&count); err != nil {
+	if err := s.conn.QueryRow(ctx, sql, args...).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -496,6 +478,32 @@ func (s Store) getFilters(opts vectorstores.Options) (map[string]any, error) {
 		return nil, ErrInvalidFilters
 	}
 	return map[string]any{}, nil
+}
+
+func (s Store) buildSearchFilters(collectionName string, opts vectorstores.Options) (string, []any, error) {
+	filter, err := s.getFilters(opts)
+	if err != nil {
+		return "", nil, err
+	}
+
+	whereQuerys := []string{
+		fmt.Sprintf("%s.name = $1", s.collectionTableName),
+	}
+	args := []any{collectionName}
+
+	for k, v := range filter {
+		whereQuerys = append(
+			whereQuerys,
+			fmt.Sprintf("(%s.cmetadata ->> $%d) = $%d", s.embeddingTableName, len(args)+1, len(args)+2),
+		)
+		args = append(args, k, v)
+	}
+	if opts.DocumentLike != "" {
+		whereQuerys = append(whereQuerys, fmt.Sprintf("%s.document ILIKE $%d", s.embeddingTableName, len(args)+1))
+		args = append(args, "%"+opts.DocumentLike+"%")
+	}
+
+	return strings.Join(whereQuerys, " AND "), args, nil
 }
 
 func (s Store) deduplicate(
