@@ -402,6 +402,40 @@ LIMIT $2 OFFSET $3`, s.embeddingTableName, s.embeddingTableName, s.embeddingTabl
 	return docs, rows.Err()
 }
 
+func (s Store) Count(
+	ctx context.Context,
+	options ...vectorstores.Option,
+) (int, error) {
+	opts := s.getOptions(options...)
+	collectionName := s.getNameSpace(opts)
+	filter, err := s.getFilters(opts)
+	if err != nil {
+		return 0, err
+	}
+
+	whereQuerys := make([]string, 0)
+	for k, v := range filter {
+		whereQuerys = append(whereQuerys, fmt.Sprintf("(%s.cmetadata ->> '%s') = '%s'", s.embeddingTableName, k, v))
+	}
+	whereQuery := strings.Join(whereQuerys, " AND ")
+	if len(whereQuery) == 0 {
+		whereQuery = "TRUE"
+	}
+
+	sql := fmt.Sprintf(`SELECT
+	COUNT(1)
+FROM %s
+JOIN %s ON %s.collection_id=%s.uuid
+WHERE %s.name='%s' AND %s`, s.embeddingTableName, s.collectionTableName, s.embeddingTableName, s.collectionTableName,
+		s.collectionTableName, collectionName, whereQuery)
+
+	var count int
+	if err := s.conn.QueryRow(ctx, sql).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (s Store) DropTables(ctx context.Context) error {
 	if _, err := s.conn.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, s.embeddingTableName)); err != nil {
 		return err
