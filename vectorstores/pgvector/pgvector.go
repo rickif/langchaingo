@@ -355,7 +355,6 @@ func (s Store) Search(
 	ctx context.Context,
 	limit int,
 	offset int,
-	orderBy []string,
 	options ...vectorstores.Option,
 ) ([]schema.Document, error) {
 	opts := s.getOptions(options...)
@@ -364,10 +363,11 @@ func (s Store) Search(
 	if err != nil {
 		return nil, err
 	}
-	orderby := strings.Join(orderBy, ",")
-	if len(orderby) == 0 {
-		orderby = "1"
+	orderByQuery, orderByArgs, err := s.buildSearchOrderBy(opts, len(args)+1)
+	if err != nil {
+		return nil, err
 	}
+	args = append(args, orderByArgs...)
 	sql := fmt.Sprintf(`SELECT
 	%s.document,
 	%s.cmetadata
@@ -375,7 +375,7 @@ FROM %s
 JOIN %s ON %s.collection_id=%s.uuid
 WHERE %s ORDER BY %s
 LIMIT $%d OFFSET $%d`, s.embeddingTableName, s.embeddingTableName, s.embeddingTableName,
-		s.collectionTableName, s.embeddingTableName, s.collectionTableName, whereQuery, orderby, len(args)+1, len(args)+2)
+		s.collectionTableName, s.embeddingTableName, s.collectionTableName, whereQuery, orderByQuery, len(args)+1, len(args)+2)
 	args = append(args, limit, offset)
 	rows, err := s.conn.Query(ctx, sql, args...)
 	if err != nil {
@@ -504,6 +504,24 @@ func (s Store) buildSearchFilters(collectionName string, opts vectorstores.Optio
 	}
 
 	return strings.Join(whereQuerys, " AND "), args, nil
+}
+
+func (s Store) buildSearchOrderBy(opts vectorstores.Options, argPos int) (string, []any, error) {
+	if len(opts.MetadataOrderBy) == 0 {
+		return fmt.Sprintf("%s.uuid ASC", s.embeddingTableName), nil, nil
+	}
+
+	orderByParts := make([]string, 0, len(opts.MetadataOrderBy)+1)
+	orderByArgs := make([]any, 0, len(opts.MetadataOrderBy))
+	for idx, key := range opts.MetadataOrderBy {
+		orderByParts = append(
+			orderByParts,
+			fmt.Sprintf("((%s.cmetadata ->> $%d)::bigint) ASC NULLS LAST", s.embeddingTableName, argPos+idx),
+		)
+		orderByArgs = append(orderByArgs, key)
+	}
+	orderByParts = append(orderByParts, fmt.Sprintf("%s.uuid ASC", s.embeddingTableName))
+	return strings.Join(orderByParts, ", "), orderByArgs, nil
 }
 
 func (s Store) deduplicate(

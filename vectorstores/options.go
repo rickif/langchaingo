@@ -12,12 +12,13 @@ type Option func(*Options)
 
 // Options is a set of options for similarity search and add documents.
 type Options struct {
-	NameSpace      string
-	ScoreThreshold float32
-	Filters        any
-	DocumentLike   string
-	Embedder       embeddings.Embedder
-	Deduplicater   func(context.Context, schema.Document) bool
+	NameSpace       string
+	ScoreThreshold  float32
+	Filters         any
+	DocumentLike    string
+	MetadataOrderBy []string
+	Embedder        embeddings.Embedder
+	Deduplicater    func(context.Context, schema.Document) bool
 }
 
 // WithNameSpace returns an Option for setting the name space.
@@ -48,6 +49,15 @@ func WithFilters(filters any) Option {
 func WithDocumentLike(keyword string) Option {
 	return func(o *Options) {
 		o.DocumentLike = keyword
+	}
+}
+
+// WithMetadataOrderBy orders search results by the given metadata keys in order.
+// The current pgvector implementation sorts each key as bigint ascending and
+// places missing values last.
+func WithMetadataOrderBy(keys ...string) Option {
+	return func(o *Options) {
+		o.MetadataOrderBy = append([]string(nil), keys...)
 	}
 }
 
