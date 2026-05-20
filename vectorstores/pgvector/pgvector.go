@@ -298,8 +298,14 @@ func (s Store) SimilaritySearch(
 	if scoreThreshold != 0 {
 		whereQuerys = append(whereQuerys, fmt.Sprintf("data.distance < %f", 1-scoreThreshold))
 	}
-	for k, v := range filter {
-		whereQuerys = append(whereQuerys, fmt.Sprintf("(data.cmetadata ->> '%s') = '%s'", k, v))
+	if len(filter) > 0 {
+		metaFilter, err := buildMetadataFilter(filter, "data")
+		if err != nil {
+			return nil, err
+		}
+		if metaFilter != "" {
+			whereQuerys = append(whereQuerys, metaFilter)
+		}
 	}
 	whereQuery := strings.Join(whereQuerys, " AND ")
 	if len(whereQuery) == 0 {
@@ -468,8 +474,17 @@ func (s Store) getScoreThreshold(opts vectorstores.Options) (float32, error) {
 	return opts.ScoreThreshold, nil
 }
 
-// getFilters return metadata filters, now only support map[key]value pattern
-// TODO: should support more types like {"key1": {"key2":"values2"}} or {"key": ["value1", "values2"]}.
+// getFilters return metadata filters.
+// Supports simple key-value pairs (AND-connected) and "$or" key for OR-connected conditions.
+// Example:
+//
+//	map[string]any{
+//	    "source": "web",                       // AND condition
+//	    "$or": []map[string]any{               // OR group
+//	        {"category": "tech"},
+//	        {"category": "science"},
+//	    },
+//	}
 func (s Store) getFilters(opts vectorstores.Options) (map[string]any, error) {
 	if opts.Filters != nil {
 		if filters, ok := opts.Filters.(map[string]any); ok {
@@ -478,6 +493,32 @@ func (s Store) getFilters(opts vectorstores.Options) (map[string]any, error) {
 		return nil, ErrInvalidFilters
 	}
 	return map[string]any{}, nil
+}
+
+// buildMetadataFilter converts a filter map to a SQL WHERE clause fragment using string interpolation.
+// Supports "$or" key for OR-connected sub-conditions; all other keys are AND-connected.
+func buildMetadataFilter(filter map[string]any, tableAlias string) (string, error) {
+	andClauses := make([]string, 0, len(filter))
+	for k, v := range filter {
+		if k == "$or" {
+			orItems, ok := v.([]map[string]any)
+			if !ok {
+				return "", ErrInvalidFilters
+			}
+			orClauses := make([]string, 0, len(orItems))
+			for _, item := range orItems {
+				for ik, iv := range item {
+					orClauses = append(orClauses, fmt.Sprintf("(%s.cmetadata ->> '%s') = '%s'", tableAlias, ik, iv))
+				}
+			}
+			if len(orClauses) > 0 {
+				andClauses = append(andClauses, "("+strings.Join(orClauses, " OR ")+")")
+			}
+			continue
+		}
+		andClauses = append(andClauses, fmt.Sprintf("(%s.cmetadata ->> '%s') = '%s'", tableAlias, k, v))
+	}
+	return strings.Join(andClauses, " AND "), nil
 }
 
 func (s Store) buildSearchFilters(collectionName string, opts vectorstores.Options) (string, []any, error) {
@@ -492,6 +533,25 @@ func (s Store) buildSearchFilters(collectionName string, opts vectorstores.Optio
 	args := []any{collectionName}
 
 	for k, v := range filter {
+		if k == "$or" {
+			orItems, ok := v.([]map[string]any)
+			if !ok {
+				return "", nil, ErrInvalidFilters
+			}
+			orClauses := make([]string, 0, len(orItems))
+			for _, item := range orItems {
+				for ik, iv := range item {
+					orClauses = append(orClauses,
+						fmt.Sprintf("(%s.cmetadata ->> $%d) = $%d", s.embeddingTableName, len(args)+1, len(args)+2),
+					)
+					args = append(args, ik, iv)
+				}
+			}
+			if len(orClauses) > 0 {
+				whereQuerys = append(whereQuerys, "("+strings.Join(orClauses, " OR ")+")")
+			}
+			continue
+		}
 		whereQuerys = append(
 			whereQuerys,
 			fmt.Sprintf("(%s.cmetadata ->> $%d) = $%d", s.embeddingTableName, len(args)+1, len(args)+2),
