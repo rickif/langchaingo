@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/tmc/langchaingo/llms"
@@ -32,7 +34,7 @@ type StreamOptions struct {
 type ChatRequest struct {
 	Model       string         `json:"model"`
 	Messages    []*ChatMessage `json:"messages"`
-	Temperature float64        `json:"temperature"`
+	Temperature float64        `json:"temperature,omitempty"`
 	TopP        float64        `json:"top_p,omitempty"`
 	// Deprecated: Use MaxCompletionTokens
 	// Note: Some OpenAI-compatible servers still require this field
@@ -110,7 +112,7 @@ func (r ChatRequest) MarshalJSON() ([]byte, error) {
 	}
 
 	// Handle temperature for reasoning models
-	if isReasoningModel(r.Model) {
+	if isReasoningModel(r.Model) || isClaude47ModelOrNewer(r.Model) {
 		// Reasoning models (GPT-5, o1, o3) only accept temperature=1 (default)
 		// Omit temperature field to let API use its default value
 		aux.Temperature = nil
@@ -178,6 +180,18 @@ func isReasoningModel(model string) bool {
 		return true
 	}
 	return false
+}
+
+var claudeVerRe = regexp.MustCompile(`(?:^|/)claude-[a-zA-Z]+-(\d+)(?:\.(\d+))?`)
+
+func isClaude47ModelOrNewer(model string) bool {
+	matches := claudeVerRe.FindStringSubmatch(model)
+	if matches == nil {
+		return false
+	}
+	major, _ := strconv.Atoi(matches[1])
+	minor, _ := strconv.Atoi(matches[2])
+	return major > 4 || (major == 4 && minor >= 7)
 }
 
 // ToolType is the type of a tool.
